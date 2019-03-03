@@ -138,7 +138,13 @@
             android:id="@+id/soundSwitch"
             android:layout_height="wrap_content"
             android:layout_width="match_parent"
-            android:text="Toggle" />
+            android:text="Use Sound" />
+
+        <Switch
+            android:id="@+id/vibrationSwitch"
+            android:layout_height="wrap_content"
+            android:layout_width="match_parent"
+            android:text="Use Vibration" />
 
         <TextView
             android:layout_width="match_parent"

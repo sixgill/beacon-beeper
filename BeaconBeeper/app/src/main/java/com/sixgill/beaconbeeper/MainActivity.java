@@ -3,13 +3,17 @@ package com.sixgill.beaconbeeper;
 import android.Manifest;
 import android.bluetooth.BluetoothAdapter;
 import android.bluetooth.le.BluetoothLeScanner;
+import android.content.Context;
 import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.media.MediaPlayer;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
+import android.os.Parcel;
 import android.os.RemoteException;
+import android.os.VibrationEffect;
+import android.os.Vibrator;
 import android.support.v4.app.ActivityCompat;
 import android.support.v4.content.ContextCompat;
 import android.support.v7.app.AppCompatActivity;
@@ -53,6 +57,7 @@ public class MainActivity extends AppCompatActivity implements BeaconConsumer {
 
     private int minRssi = -100;
     private int maxRssi = -30;
+    private Vibrator vibrator;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -82,6 +87,8 @@ public class MainActivity extends AppCompatActivity implements BeaconConsumer {
                 maxRssi = maxValue.intValue();
             }
         });
+
+        vibrator = (Vibrator) getSystemService(Context.VIBRATOR_SERVICE);
     }
 
     public void startListening(View v) {
@@ -105,6 +112,7 @@ public class MainActivity extends AppCompatActivity implements BeaconConsumer {
         final TextView minorTextView = findViewById(R.id.minorTextView);
         final TextView distanceTextView = findViewById(R.id.distanceTextView);
         final Switch soundSwitch = findViewById(R.id.soundSwitch);
+        final Switch vibrationSwitch = findViewById(R.id.vibrationSwitch);
 
         uuidTextView.setText("UUID: " + uuid);
         majorTextView.setText("Major: " + major);
@@ -118,13 +126,24 @@ public class MainActivity extends AppCompatActivity implements BeaconConsumer {
                 Beacon beacon = getClosestBeacon(beacons, uuid, major, minor);
                 if (beacon != null) {
                     String distanceString = String.format(Locale.US, "%.2f", beacon.getDistance());
-                    distanceTextView.setText("rssi: " + beacon.getRssi() + " distance: " + distanceString);
+                    distanceTextView.setText("rssi: " + beacon.getRssi() + " distance: " + distanceString + " meters");
 
-                    if (soundSwitch.isChecked() && beacon.getRssi() > minRssi && beacon.getRssi() < maxRssi) {
-                        MediaPlayer mediaPlayer = MediaPlayer.create(MainActivity.this, R.raw.quite_impressed);
-                        float ratio = ((float)beacon.getRssi() - (float)minRssi) / ((float)maxRssi - (float)minRssi);
-                        mediaPlayer.setVolume(ratio, ratio);
-                        mediaPlayer.start();
+                    boolean inRange = beacon.getRssi() > minRssi && beacon.getRssi() < maxRssi;
+                    float ratio = ((float)beacon.getRssi() - (float)minRssi) / ((float)maxRssi - (float)minRssi);
+                    if (inRange) {
+                        if (soundSwitch.isChecked()){
+                            MediaPlayer mediaPlayer = MediaPlayer.create(MainActivity.this, R.raw.quite_impressed);
+                            mediaPlayer.setVolume(ratio, ratio);
+                            mediaPlayer.start();
+                        }
+                        if (vibrationSwitch.isChecked()) {
+                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                                VibrationEffect vibrationEffect = VibrationEffect.createOneShot(800, (int)(ratio * 255.0) + 1);
+                                vibrator.vibrate(vibrationEffect);
+                            } else {
+                                vibrator.vibrate(800);
+                            }
+                        }
                     }
                 } else {
                     distanceTextView.setText("No beacon found.");
