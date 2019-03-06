@@ -1,6 +1,7 @@
 package com.sixgill.beaconbeeper;
 
 import android.Manifest;
+import android.app.Activity;
 import android.content.Context;
 import android.content.Intent;
 import android.content.pm.PackageManager;
@@ -11,7 +12,6 @@ import android.os.AsyncTask;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.RemoteException;
-import android.os.StrictMode;
 import android.os.VibrationEffect;
 import android.os.Vibrator;
 import android.support.v4.app.ActivityCompat;
@@ -47,11 +47,10 @@ import java.io.File;
 import java.io.FileNotFoundException;
 import java.io.FileOutputStream;
 import java.io.IOException;
+import java.lang.ref.WeakReference;
 import java.text.DateFormat;
 import java.text.SimpleDateFormat;
-import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.Comparator;
@@ -80,7 +79,6 @@ public class MainActivity extends AppCompatActivity implements BeaconConsumer {
 
     private SoundPool soundPool;
     private int soundId;
-    private AppDatabase db;
     private EventDao mEventDao;
 
     @Override
@@ -120,8 +118,7 @@ public class MainActivity extends AppCompatActivity implements BeaconConsumer {
         soundPool = new SoundPool(1, AudioManager.STREAM_MUSIC, 0);
         soundId = soundPool.load(this, R.raw.quite_impressed, 1);
 
-        db = AppDatabase.getDatabase(getApplicationContext());
-        mEventDao = db.eventDao();
+        mEventDao = AppDatabase.getDatabase(getApplicationContext()).eventDao();
     }
 
     @Override
@@ -148,7 +145,7 @@ public class MainActivity extends AppCompatActivity implements BeaconConsumer {
             minor = TEST_MINOR;
         }
         if (!hasPermissions() || mListening) {
-            Toast.makeText(this, "Don't have valid permissions!", Toast.LENGTH_LONG);
+            Toast.makeText(this, "Don't have valid permissions!", Toast.LENGTH_LONG).show();
             return;
         }
 
@@ -261,7 +258,7 @@ public class MainActivity extends AppCompatActivity implements BeaconConsumer {
 
     @Override
     public void onBeaconServiceConnect() {
-        Toast.makeText(this, "Connected to BLE", Toast.LENGTH_SHORT);
+        Toast.makeText(this, "Connected to BLE", Toast.LENGTH_SHORT).show();
     }
 
     public void stopListening(View view) {
@@ -291,7 +288,7 @@ public class MainActivity extends AppCompatActivity implements BeaconConsumer {
                 startActivity(i);
                 return true;
             case R.id.export:
-                new exportAsyncTask(getApplicationContext(), mEventDao).execute();
+                new exportAsyncTask(this, mEventDao).execute();
             default:
                 return super.onOptionsItemSelected(item);
         }
@@ -313,19 +310,33 @@ public class MainActivity extends AppCompatActivity implements BeaconConsumer {
     }
 
     private static class exportAsyncTask extends AsyncTask<Void, Void, Void> {
-
-        private Context context;
+        private final WeakReference<MainActivity> weakReference;
         private EventDao eventDao;
 
-        exportAsyncTask(Context context, EventDao eventDao) {
-            this.context = context;
+        exportAsyncTask(MainActivity activity, EventDao eventDao) {
+            this.weakReference = new WeakReference<>(activity);
             this.eventDao = eventDao;
         }
 
         @Override
         protected Void doInBackground(final Void... args) {
+            // Re-acquire a strong reference to the activity, and verify that it still exists and is active.
+            MainActivity activity = weakReference.get();
+            if(activity == null || activity.isFinishing() || activity.isDestroyed()) {
+                // activity is no longer valid, don't do anything
+                return null;
+            }
+            // get the context
+            Context context = activity.getApplicationContext();
+
+            List<Event> collectedEvents = eventDao.getEvents();
+            if(collectedEvents.size() == 0) {
+                Toast.makeText(context, "Nothing to export", Toast.LENGTH_LONG).show();
+                return null;
+            }
+
             File outputDir = context.getCacheDir();
-            File outputFile = null;
+            File outputFile;
             try {
                 outputFile = File.createTempFile("events-", ".csv", outputDir);
 
@@ -333,7 +344,7 @@ public class MainActivity extends AppCompatActivity implements BeaconConsumer {
                 Toast.makeText(context, e.getMessage(), Toast.LENGTH_LONG).show();
                 return null;
             }
-            FileOutputStream stream = null;
+            FileOutputStream stream;
             try {
                 stream = new FileOutputStream(outputFile);
             } catch (FileNotFoundException e) {
@@ -342,7 +353,7 @@ public class MainActivity extends AppCompatActivity implements BeaconConsumer {
             }
             try {
                 stream.write(getEventCSVHeader().getBytes());
-                for (Event event : eventDao.getEvents()) {
+                for (Event event : collectedEvents) {
                     stream.write(getEventCSVLine(event).getBytes());
                 }
             } catch (IOException e) {
@@ -355,11 +366,11 @@ public class MainActivity extends AppCompatActivity implements BeaconConsumer {
                     Toast.makeText(context, e.getMessage(), Toast.LENGTH_LONG).show();
                 }
             }
-            // Fetch Bitmap Uri locally
-//             Uri.fromFile(outputFile);
+
             Uri uri = FileProvider.getUriForFile(context, context.getPackageName()+".fileprovider", outputFile);
 
             Intent shareIntent = new Intent();
+            shareIntent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
             shareIntent.setAction(Intent.ACTION_SEND);
             shareIntent.putExtra(Intent.EXTRA_STREAM, uri);
             shareIntent.setType("text/csv");
@@ -367,11 +378,11 @@ public class MainActivity extends AppCompatActivity implements BeaconConsumer {
             return null;
         }
 
-        private static final String getEventCSVHeader() {
+        private static String getEventCSVHeader() {
             return "id,uuid,major,minor,rssi,distance,sound,vibration,date\n";
         }
 
-        private static final String getEventCSVLine(Event event) {
+        private static String getEventCSVLine(Event event) {
             return String.format("%s,%s,%s,%s,%s,%s,%s,%s,%s\n", String.valueOf(event.id),
                     event.uuid,
                     event.major,
