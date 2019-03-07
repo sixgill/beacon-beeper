@@ -261,7 +261,10 @@ public class MainActivity extends AppCompatActivity implements BeaconConsumer {
                         }
                         if (vibrationSwitch.isChecked()) {
                             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                                VibrationEffect vibrationEffect = VibrationEffect.createOneShot(800, (int)(ratio * 255.0) + 1);
+                                int amplitude = (int) ( ratio * 255 ) + 1;
+                                if(amplitude < 0) amplitude = 1;
+                                amplitude = amplitude % 255;
+                                VibrationEffect vibrationEffect = VibrationEffect.createOneShot(800, amplitude);
                                 vibrator.vibrate(vibrationEffect);
                             } else {
                                 vibrator.vibrate(800);
