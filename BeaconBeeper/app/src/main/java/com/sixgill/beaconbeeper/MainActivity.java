@@ -164,8 +164,8 @@ public class MainActivity extends AppCompatActivity implements BeaconConsumer {
             public void onItemSelected(AdapterView<?> adapterView, View view, int i, long l) {
                 if(dropdown.getSelectedItem().equals("RSSI")) {
                     triggerRSSI = true;
-                    maxRssi = -100;
-                    minRssi = -30;
+                    maxRssi = -30;
+                    minRssi = -100;
                     rangeSeekbar.setMaxValue(maxRssi);
                     rangeSeekbar.setMinValue(minRssi);
                     rangeSeekbar.setMaxStartValue(maxRssi);
