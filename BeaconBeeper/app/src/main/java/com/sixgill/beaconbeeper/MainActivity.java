@@ -250,7 +250,7 @@ public class MainActivity extends AppCompatActivity implements BeaconConsumer {
                     if (triggerRSSI){
                        inRange = beacon.getRssi() > minRssi && beacon.getRssi() < maxRssi;
                     } else {
-                        inRange = Float.valueOf(distanceString) > minDistance && Float.valueOf(distanceString) < maxDistance;
+                        inRange = beacon.getDistance() > minDistance && beacon.getDistance() < maxDistance;
                     }
 
                     float ratio = ((float)beacon.getRssi() - (float)minRssi) / ((float)maxRssi - (float)minRssi);
@@ -425,7 +425,6 @@ public class MainActivity extends AppCompatActivity implements BeaconConsumer {
 
             List<Event> collectedEvents = eventDao.getEvents();
             if(collectedEvents.size() == 0) {
-                Toast.makeText(context, "Nothing to export", Toast.LENGTH_LONG).show();
                 return null;
             }
 
