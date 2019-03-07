@@ -131,17 +131,30 @@
         <TextView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:text="Sound Controls"
+            android:text="Controls"
             android:textAppearance="?android:attr/textAppearanceLarge"/>
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Trigger with"
+            android:textAppearance="?android:attr/textAppearanceMedium"/>
+
+        <Spinner android:layout_height="wrap_content"
+            android:layout_width="match_parent"
+            android:id="@+id/spinner"
+            android:spinnerMode="dropdown"/>
 
         <Switch
             android:id="@+id/soundSwitch"
+            android:checked="true"
             android:layout_height="wrap_content"
             android:layout_width="match_parent"
             android:text="Use Sound" />
 
         <Switch
             android:id="@+id/vibrationSwitch"
+            android:checked="true"
             android:layout_height="wrap_content"
             android:layout_width="match_parent"
             android:text="Use Vibration" />

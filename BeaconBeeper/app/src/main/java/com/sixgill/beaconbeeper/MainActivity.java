@@ -1,9 +1,9 @@
 package com.sixgill.beaconbeeper;
 
 import android.Manifest;
-import android.app.Activity;
 import android.content.Context;
 import android.content.Intent;
+import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
 import android.media.AudioManager;
 import android.media.SoundPool;
@@ -23,8 +23,11 @@ import android.view.Menu;
 import android.view.MenuInflater;
 import android.view.MenuItem;
 import android.view.View;
+import android.widget.AdapterView;
+import android.widget.ArrayAdapter;
 import android.widget.EditText;
 import android.widget.LinearLayout;
+import android.widget.Spinner;
 import android.widget.Switch;
 import android.widget.TextView;
 import android.widget.Toast;
@@ -66,6 +69,10 @@ public class MainActivity extends AppCompatActivity implements BeaconConsumer {
     private static final String TEST_MAJOR = "45983";
     private static final String TEST_MINOR = "5387";
     private static final boolean TEST_MODE = false;
+    private static final String PREFS = "beacon-beeper-prefs";
+    private static final String UUID = "beacon-beeper-uuid";
+    private static final String MAJOR = "beacon-beeper-major";
+    private static final String MINOR = "beacon-beeper-minor";
 
     private boolean mListening;
     private String uuid;
@@ -75,11 +82,21 @@ public class MainActivity extends AppCompatActivity implements BeaconConsumer {
 
     private int minRssi = -100;
     private int maxRssi = -30;
+
+    private int minDistance = 0;
+    private int maxDistance = 30;
+
     private Vibrator vibrator;
 
     private SoundPool soundPool;
     private int soundId;
     private EventDao mEventDao;
+
+    private EditText uuidEditText;
+    private EditText majorEditText;
+    private EditText minorEditText;
+    private Spinner dropdown;
+    private boolean triggerRSSI = true;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -87,6 +104,21 @@ public class MainActivity extends AppCompatActivity implements BeaconConsumer {
         setContentView(R.layout.activity_main);
 
         Stetho.initializeWithDefaults(getApplicationContext());
+
+        uuidEditText = findViewById(R.id.uuidEditText);
+        majorEditText =  findViewById(R.id.majorEditText);
+        minorEditText =  findViewById(R.id.minorEditText);
+        dropdown = findViewById(R.id.spinner);
+        String[] items = new String[]{"RSSI", "Distance"};
+        ArrayAdapter<String> adapter = new ArrayAdapter<>(this, android.R.layout.simple_spinner_dropdown_item, items);
+        dropdown.setAdapter(adapter);
+        dropdown.setSelection(0);
+
+        getValues();
+
+        uuidEditText.setText(this.uuid);
+        majorEditText.setText(this.major);
+        minorEditText.setText(this.minor);
 
         if ( ContextCompat.checkSelfPermission( this, Manifest.permission.ACCESS_FINE_LOCATION ) != PackageManager.PERMISSION_GRANTED ) {
             ActivityCompat.requestPermissions( this, new String[] {  android.Manifest.permission.ACCESS_FINE_LOCATION  },
@@ -106,10 +138,17 @@ public class MainActivity extends AppCompatActivity implements BeaconConsumer {
         rangeSeekbar.setOnRangeSeekbarChangeListener(new OnRangeSeekbarChangeListener() {
             @Override
             public void valueChanged(Number minValue, Number maxValue) {
-                tvMin.setText("Min RSSI: " + String.valueOf(minValue));
-                tvMax.setText("Max RSSI: " + String.valueOf(maxValue));
-                minRssi = minValue.intValue();
-                maxRssi = maxValue.intValue();
+                if(triggerRSSI) {
+                    tvMin.setText("Min RSSI: " + String.valueOf(minValue));
+                    tvMax.setText("Max RSSI: " + String.valueOf(maxValue));
+                    minRssi = minValue.intValue();
+                    maxRssi = maxValue.intValue();
+                } else {
+                    tvMin.setText("Min Distance: " + String.valueOf(minValue));
+                    tvMax.setText("Max Distance: " + String.valueOf(maxValue));
+                    minDistance = minValue.intValue();
+                    maxDistance = maxValue.intValue();
+                }
             }
         });
 
@@ -119,6 +158,38 @@ public class MainActivity extends AppCompatActivity implements BeaconConsumer {
         soundId = soundPool.load(this, R.raw.quite_impressed, 1);
 
         mEventDao = AppDatabase.getDatabase(getApplicationContext()).eventDao();
+
+        dropdown.setOnItemSelectedListener(new AdapterView.OnItemSelectedListener() {
+            @Override
+            public void onItemSelected(AdapterView<?> adapterView, View view, int i, long l) {
+                if(dropdown.getSelectedItem().equals("RSSI")) {
+                    triggerRSSI = true;
+                    maxRssi = -100;
+                    minRssi = -30;
+                    rangeSeekbar.setMaxValue(maxRssi);
+                    rangeSeekbar.setMinValue(minRssi);
+                    rangeSeekbar.setMaxStartValue(maxRssi);
+                    rangeSeekbar.setMinStartValue(minRssi);
+                    tvMin.setText("Min RSSI: " + String.valueOf(rangeSeekbar.getSelectedMinValue()));
+                    tvMax.setText("Max RSSI: " + String.valueOf(rangeSeekbar.getSelectedMaxValue()));
+                } else {
+                    triggerRSSI = false;
+                    maxDistance = 30;
+                    minDistance = 0;
+                    rangeSeekbar.setMaxValue(maxDistance);
+                    rangeSeekbar.setMinValue(minDistance);
+                    rangeSeekbar.setMaxStartValue(maxDistance);
+                    rangeSeekbar.setMinStartValue(minDistance);
+                    tvMin.setText("Min Distance: " + String.valueOf(rangeSeekbar.getSelectedMinValue()));
+                    tvMax.setText("Max Distance: " + String.valueOf(rangeSeekbar.getSelectedMaxValue()));
+                }
+            }
+
+            @Override
+            public void onNothingSelected(AdapterView<?> adapterView) {
+
+            }
+        });
     }
 
     @Override
@@ -132,13 +203,13 @@ public class MainActivity extends AppCompatActivity implements BeaconConsumer {
 
     public void startListening(View v) {
         final LinearLayout setupView = findViewById(R.id.setupView);
-        EditText uuidEditText = findViewById(R.id.uuidEditText);
-        EditText majorEditText =  findViewById(R.id.majorEditText);
-        EditText minorEditText =  findViewById(R.id.minorEditText);
 
         uuid = uuidEditText.getText().toString();
         major = majorEditText.getText().toString();
         minor = minorEditText.getText().toString();
+
+        saveValues(uuid, major, minor);
+
         if (TEST_MODE) {
             uuid = TEST_UUID;
             major = TEST_MAJOR;
@@ -174,10 +245,18 @@ public class MainActivity extends AppCompatActivity implements BeaconConsumer {
                     String distanceString = String.format(Locale.US, "%.2f", beacon.getDistance());
                     distanceTextView.setText("rssi: " + beacon.getRssi() + " distance: " + distanceString + " meters");
 
-                    boolean inRange = beacon.getRssi() > minRssi && beacon.getRssi() < maxRssi;
+                    boolean inRange;
+
+                    if (triggerRSSI){
+                       inRange = beacon.getRssi() > minRssi && beacon.getRssi() < maxRssi;
+                    } else {
+                        inRange = Float.valueOf(distanceString) > minDistance && Float.valueOf(distanceString) < maxDistance;
+                    }
+
                     float ratio = ((float)beacon.getRssi() - (float)minRssi) / ((float)maxRssi - (float)minRssi);
+
                     if (inRange) {
-                        if (soundSwitch.isChecked()){
+                        if (soundSwitch.isChecked() && soundPool != null){
                             soundPool.play(soundId, ratio, ratio, 1, 0, 1f);
                         }
                         if (vibrationSwitch.isChecked()) {
@@ -292,6 +371,21 @@ public class MainActivity extends AppCompatActivity implements BeaconConsumer {
             default:
                 return super.onOptionsItemSelected(item);
         }
+    }
+
+    private void saveValues(String uuid, String major, String minor) {
+        SharedPreferences.Editor editor = getSharedPreferences(PREFS, MODE_PRIVATE).edit();
+        editor.putString(UUID, uuid);
+        editor.putString(MAJOR, major);
+        editor.putString(MINOR, minor);
+        editor.apply();
+    }
+
+    private void getValues() {
+        SharedPreferences prefs = getSharedPreferences(PREFS, MODE_PRIVATE);
+        this.uuid = prefs.getString(UUID, "");
+        this.major = prefs.getString(MAJOR, "");
+        this.minor = prefs.getString(MINOR, "");
     }
 
     private static class insertAsyncTask extends AsyncTask<Event, Void, Void> {
