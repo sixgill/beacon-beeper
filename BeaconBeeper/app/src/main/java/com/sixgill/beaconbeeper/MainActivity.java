@@ -83,8 +83,8 @@ public class MainActivity extends AppCompatActivity implements BeaconConsumer {
     private int minRssi = -100;
     private int maxRssi = -30;
 
-    private int minDistance = 0;
-    private int maxDistance = 30;
+    private float minDistance = 0;
+    private float maxDistance = 10;
 
     private Vibrator vibrator;
 
@@ -98,6 +98,9 @@ public class MainActivity extends AppCompatActivity implements BeaconConsumer {
     private Spinner dropdown;
     private boolean triggerRSSI = true;
 
+    private CrystalRangeSeekbar rangeSeekbar;
+    private TextView selectedRange;
+
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
@@ -108,6 +111,7 @@ public class MainActivity extends AppCompatActivity implements BeaconConsumer {
         uuidEditText = findViewById(R.id.uuidEditText);
         majorEditText =  findViewById(R.id.majorEditText);
         minorEditText =  findViewById(R.id.minorEditText);
+        selectedRange = findViewById(R.id.selectedRange);
         dropdown = findViewById(R.id.spinner);
         String[] items = new String[]{"RSSI", "Distance"};
         ArrayAdapter<String> adapter = new ArrayAdapter<>(this, android.R.layout.simple_spinner_dropdown_item, items);
@@ -131,7 +135,7 @@ public class MainActivity extends AppCompatActivity implements BeaconConsumer {
         beaconManager.bind(this);
 
         // rssi range configuration
-        final CrystalRangeSeekbar rangeSeekbar = findViewById(R.id.rangeSeekbar1);
+        rangeSeekbar = findViewById(R.id.rangeSeekbar1);
         final TextView tvMin = findViewById(R.id.minRssiTextView);
         final TextView tvMax = findViewById(R.id.maxRssiTextView);
 
@@ -144,10 +148,10 @@ public class MainActivity extends AppCompatActivity implements BeaconConsumer {
                     minRssi = minValue.intValue();
                     maxRssi = maxValue.intValue();
                 } else {
-                    tvMin.setText("Min Distance: " + String.valueOf(minValue));
-                    tvMax.setText("Max Distance: " + String.valueOf(maxValue));
-                    minDistance = minValue.intValue();
-                    maxDistance = maxValue.intValue();
+                    tvMin.setText("Min Distance: " + String.valueOf(minValue.floatValue()/2));
+                    tvMax.setText("Max Distance: " + String.valueOf(maxValue.floatValue()/2));
+                    minDistance = minValue.floatValue()/2;
+                    maxDistance = maxValue.floatValue()/2;
                 }
             }
         });
@@ -172,16 +176,18 @@ public class MainActivity extends AppCompatActivity implements BeaconConsumer {
                     rangeSeekbar.setMinStartValue(minRssi);
                     tvMin.setText("Min RSSI: " + String.valueOf(rangeSeekbar.getSelectedMinValue()));
                     tvMax.setText("Max RSSI: " + String.valueOf(rangeSeekbar.getSelectedMaxValue()));
+                    selectedRange.setText("RSSI Range");
                 } else {
                     triggerRSSI = false;
-                    maxDistance = 30;
+                    maxDistance = 10;
                     minDistance = 0;
                     rangeSeekbar.setMaxValue(maxDistance);
                     rangeSeekbar.setMinValue(minDistance);
                     rangeSeekbar.setMaxStartValue(maxDistance);
                     rangeSeekbar.setMinStartValue(minDistance);
-                    tvMin.setText("Min Distance: " + String.valueOf(rangeSeekbar.getSelectedMinValue()));
-                    tvMax.setText("Max Distance: " + String.valueOf(rangeSeekbar.getSelectedMaxValue()));
+                    selectedRange.setText("Distance Range");
+                    tvMin.setText("Min Distance: " + String.valueOf(rangeSeekbar.getSelectedMinValue().floatValue()/2));
+                    tvMax.setText("Max Distance: " + String.valueOf(rangeSeekbar.getSelectedMaxValue().floatValue()/2));
                 }
             }
 
@@ -250,7 +256,7 @@ public class MainActivity extends AppCompatActivity implements BeaconConsumer {
                     if (triggerRSSI){
                        inRange = beacon.getRssi() > minRssi && beacon.getRssi() < maxRssi;
                     } else {
-                        inRange = beacon.getDistance() > minDistance && beacon.getDistance() < maxDistance;
+                        inRange = ((float)beacon.getDistance()) > minDistance &&  ((float)beacon.getDistance()) < maxDistance;
                     }
 
                     float ratio = ((float)beacon.getRssi() - (float)minRssi) / ((float)maxRssi - (float)minRssi);
