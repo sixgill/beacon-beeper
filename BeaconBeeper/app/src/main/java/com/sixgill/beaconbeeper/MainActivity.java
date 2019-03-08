@@ -84,7 +84,7 @@ public class MainActivity extends AppCompatActivity implements BeaconConsumer {
     private int maxRssi = -30;
 
     private float minDistance = 0;
-    private float maxDistance = 10;
+    private float maxDistance = 20;
 
     private Vibrator vibrator;
 
@@ -179,7 +179,7 @@ public class MainActivity extends AppCompatActivity implements BeaconConsumer {
                     selectedRange.setText("RSSI Range");
                 } else {
                     triggerRSSI = false;
-                    maxDistance = 10;
+                    maxDistance = 20;
                     minDistance = 0;
                     rangeSeekbar.setMaxValue(maxDistance);
                     rangeSeekbar.setMinValue(minDistance);
