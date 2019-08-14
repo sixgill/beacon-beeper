@@ -3,6 +3,7 @@ package com.sixgill.beaconbeeper;
 import android.Manifest;
 import android.content.Context;
 import android.content.Intent;
+import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
 import android.media.AudioManager;
 import android.media.SoundPool;
@@ -11,7 +12,6 @@ import android.os.AsyncTask;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.RemoteException;
-import android.os.StrictMode;
 import android.os.VibrationEffect;
 import android.os.Vibrator;
 import android.support.v4.app.ActivityCompat;
@@ -23,8 +23,11 @@ import android.view.Menu;
 import android.view.MenuInflater;
 import android.view.MenuItem;
 import android.view.View;
+import android.widget.AdapterView;
+import android.widget.ArrayAdapter;
 import android.widget.EditText;
 import android.widget.LinearLayout;
+import android.widget.Spinner;
 import android.widget.Switch;
 import android.widget.TextView;
 import android.widget.Toast;
@@ -47,11 +50,10 @@ import java.io.File;
 import java.io.FileNotFoundException;
 import java.io.FileOutputStream;
 import java.io.IOException;
+import java.lang.ref.WeakReference;
 import java.text.DateFormat;
 import java.text.SimpleDateFormat;
-import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.Comparator;
@@ -67,6 +69,10 @@ public class MainActivity extends AppCompatActivity implements BeaconConsumer {
     private static final String TEST_MAJOR = "45983";
     private static final String TEST_MINOR = "5387";
     private static final boolean TEST_MODE = false;
+    private static final String PREFS = "beacon-beeper-prefs";
+    private static final String UUID = "beacon-beeper-uuid";
+    private static final String MAJOR = "beacon-beeper-major";
+    private static final String MINOR = "beacon-beeper-minor";
 
     private boolean mListening;
     private String uuid;
@@ -76,12 +82,24 @@ public class MainActivity extends AppCompatActivity implements BeaconConsumer {
 
     private int minRssi = -100;
     private int maxRssi = -30;
+
+    private float minDistance = 0;
+    private float maxDistance = 20;
+
     private Vibrator vibrator;
 
     private SoundPool soundPool;
     private int soundId;
-    private AppDatabase db;
     private EventDao mEventDao;
+
+    private EditText uuidEditText;
+    private EditText majorEditText;
+    private EditText minorEditText;
+    private Spinner dropdown;
+    private boolean triggerRSSI = true;
+
+    private CrystalRangeSeekbar rangeSeekbar;
+    private TextView selectedRange;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -89,6 +107,22 @@ public class MainActivity extends AppCompatActivity implements BeaconConsumer {
         setContentView(R.layout.activity_main);
 
         Stetho.initializeWithDefaults(getApplicationContext());
+
+        uuidEditText = findViewById(R.id.uuidEditText);
+        majorEditText =  findViewById(R.id.majorEditText);
+        minorEditText =  findViewById(R.id.minorEditText);
+        selectedRange = findViewById(R.id.selectedRange);
+        dropdown = findViewById(R.id.spinner);
+        String[] items = new String[]{"RSSI", "Distance"};
+        ArrayAdapter<String> adapter = new ArrayAdapter<>(this, android.R.layout.simple_spinner_dropdown_item, items);
+        dropdown.setAdapter(adapter);
+        dropdown.setSelection(0);
+
+        getValues();
+
+        uuidEditText.setText(this.uuid);
+        majorEditText.setText(this.major);
+        minorEditText.setText(this.minor);
 
         if ( ContextCompat.checkSelfPermission( this, Manifest.permission.ACCESS_FINE_LOCATION ) != PackageManager.PERMISSION_GRANTED ) {
             ActivityCompat.requestPermissions( this, new String[] {  android.Manifest.permission.ACCESS_FINE_LOCATION  },
@@ -101,17 +135,24 @@ public class MainActivity extends AppCompatActivity implements BeaconConsumer {
         beaconManager.bind(this);
 
         // rssi range configuration
-        final CrystalRangeSeekbar rangeSeekbar = findViewById(R.id.rangeSeekbar1);
+        rangeSeekbar = findViewById(R.id.rangeSeekbar1);
         final TextView tvMin = findViewById(R.id.minRssiTextView);
         final TextView tvMax = findViewById(R.id.maxRssiTextView);
 
         rangeSeekbar.setOnRangeSeekbarChangeListener(new OnRangeSeekbarChangeListener() {
             @Override
             public void valueChanged(Number minValue, Number maxValue) {
-                tvMin.setText("Min RSSI: " + String.valueOf(minValue));
-                tvMax.setText("Max RSSI: " + String.valueOf(maxValue));
-                minRssi = minValue.intValue();
-                maxRssi = maxValue.intValue();
+                if(triggerRSSI) {
+                    tvMin.setText("Min RSSI: " + String.valueOf(minValue));
+                    tvMax.setText("Max RSSI: " + String.valueOf(maxValue));
+                    minRssi = minValue.intValue();
+                    maxRssi = maxValue.intValue();
+                } else {
+                    tvMin.setText("Min Distance: " + String.valueOf(minValue.floatValue()/2));
+                    tvMax.setText("Max Distance: " + String.valueOf(maxValue.floatValue()/2));
+                    minDistance = minValue.floatValue()/2;
+                    maxDistance = maxValue.floatValue()/2;
+                }
             }
         });
 
@@ -120,8 +161,41 @@ public class MainActivity extends AppCompatActivity implements BeaconConsumer {
         soundPool = new SoundPool(1, AudioManager.STREAM_MUSIC, 0);
         soundId = soundPool.load(this, R.raw.quite_impressed, 1);
 
-        db = AppDatabase.getDatabase(getApplicationContext());
-        mEventDao = db.eventDao();
+        mEventDao = AppDatabase.getDatabase(getApplicationContext()).eventDao();
+
+        dropdown.setOnItemSelectedListener(new AdapterView.OnItemSelectedListener() {
+            @Override
+            public void onItemSelected(AdapterView<?> adapterView, View view, int i, long l) {
+                if(dropdown.getSelectedItem().equals("RSSI")) {
+                    triggerRSSI = true;
+                    maxRssi = -30;
+                    minRssi = -100;
+                    rangeSeekbar.setMaxValue(maxRssi);
+                    rangeSeekbar.setMinValue(minRssi);
+                    rangeSeekbar.setMaxStartValue(maxRssi);
+                    rangeSeekbar.setMinStartValue(minRssi);
+                    tvMin.setText("Min RSSI: " + String.valueOf(rangeSeekbar.getSelectedMinValue()));
+                    tvMax.setText("Max RSSI: " + String.valueOf(rangeSeekbar.getSelectedMaxValue()));
+                    selectedRange.setText("RSSI Range");
+                } else {
+                    triggerRSSI = false;
+                    maxDistance = 20;
+                    minDistance = 0;
+                    rangeSeekbar.setMaxValue(maxDistance);
+                    rangeSeekbar.setMinValue(minDistance);
+                    rangeSeekbar.setMaxStartValue(maxDistance);
+                    rangeSeekbar.setMinStartValue(minDistance);
+                    selectedRange.setText("Distance Range");
+                    tvMin.setText("Min Distance: " + String.valueOf(rangeSeekbar.getSelectedMinValue().floatValue()/2));
+                    tvMax.setText("Max Distance: " + String.valueOf(rangeSeekbar.getSelectedMaxValue().floatValue()/2));
+                }
+            }
+
+            @Override
+            public void onNothingSelected(AdapterView<?> adapterView) {
+
+            }
+        });
     }
 
     @Override
@@ -135,20 +209,20 @@ public class MainActivity extends AppCompatActivity implements BeaconConsumer {
 
     public void startListening(View v) {
         final LinearLayout setupView = findViewById(R.id.setupView);
-        EditText uuidEditText = findViewById(R.id.uuidEditText);
-        EditText majorEditText =  findViewById(R.id.majorEditText);
-        EditText minorEditText =  findViewById(R.id.minorEditText);
 
         uuid = uuidEditText.getText().toString();
         major = majorEditText.getText().toString();
         minor = minorEditText.getText().toString();
+
+        saveValues(uuid, major, minor);
+
         if (TEST_MODE) {
             uuid = TEST_UUID;
             major = TEST_MAJOR;
             minor = TEST_MINOR;
         }
         if (!hasPermissions() || mListening) {
-            Toast.makeText(this, "Don't have valid permissions!", Toast.LENGTH_LONG);
+            Toast.makeText(this, "Don't have valid permissions!", Toast.LENGTH_LONG).show();
             return;
         }
 
@@ -177,15 +251,26 @@ public class MainActivity extends AppCompatActivity implements BeaconConsumer {
                     String distanceString = String.format(Locale.US, "%.2f", beacon.getDistance());
                     distanceTextView.setText("rssi: " + beacon.getRssi() + " distance: " + distanceString + " meters");
 
-                    boolean inRange = beacon.getRssi() > minRssi && beacon.getRssi() < maxRssi;
+                    boolean inRange;
+
+                    if (triggerRSSI){
+                       inRange = beacon.getRssi() > minRssi && beacon.getRssi() < maxRssi;
+                    } else {
+                        inRange = ((float)beacon.getDistance()) > minDistance &&  ((float)beacon.getDistance()) < maxDistance;
+                    }
+
                     float ratio = ((float)beacon.getRssi() - (float)minRssi) / ((float)maxRssi - (float)minRssi);
+
                     if (inRange) {
-                        if (soundSwitch.isChecked()){
+                        if (soundSwitch.isChecked() && soundPool != null){
                             soundPool.play(soundId, ratio, ratio, 1, 0, 1f);
                         }
                         if (vibrationSwitch.isChecked()) {
                             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                                VibrationEffect vibrationEffect = VibrationEffect.createOneShot(800, (int)(ratio * 255.0) + 1);
+                                int amplitude = (int) ( ratio * 255 ) + 1;
+                                if(amplitude < 0) amplitude = 1;
+                                amplitude = amplitude % 255;
+                                VibrationEffect vibrationEffect = VibrationEffect.createOneShot(800, amplitude);
                                 vibrator.vibrate(vibrationEffect);
                             } else {
                                 vibrator.vibrate(800);
@@ -261,7 +346,7 @@ public class MainActivity extends AppCompatActivity implements BeaconConsumer {
 
     @Override
     public void onBeaconServiceConnect() {
-        Toast.makeText(this, "Connected to BLE", Toast.LENGTH_SHORT);
+        Toast.makeText(this, "Connected to BLE", Toast.LENGTH_SHORT).show();
     }
 
     public void stopListening(View view) {
@@ -291,10 +376,25 @@ public class MainActivity extends AppCompatActivity implements BeaconConsumer {
                 startActivity(i);
                 return true;
             case R.id.export:
-                new exportAsyncTask(getApplicationContext(), mEventDao).execute();
+                new exportAsyncTask(this, mEventDao).execute();
             default:
                 return super.onOptionsItemSelected(item);
         }
+    }
+
+    private void saveValues(String uuid, String major, String minor) {
+        SharedPreferences.Editor editor = getSharedPreferences(PREFS, MODE_PRIVATE).edit();
+        editor.putString(UUID, uuid);
+        editor.putString(MAJOR, major);
+        editor.putString(MINOR, minor);
+        editor.apply();
+    }
+
+    private void getValues() {
+        SharedPreferences prefs = getSharedPreferences(PREFS, MODE_PRIVATE);
+        this.uuid = prefs.getString(UUID, "");
+        this.major = prefs.getString(MAJOR, "");
+        this.minor = prefs.getString(MINOR, "");
     }
 
     private static class insertAsyncTask extends AsyncTask<Event, Void, Void> {
@@ -313,19 +413,32 @@ public class MainActivity extends AppCompatActivity implements BeaconConsumer {
     }
 
     private static class exportAsyncTask extends AsyncTask<Void, Void, Void> {
-
-        private Context context;
+        private final WeakReference<MainActivity> weakReference;
         private EventDao eventDao;
 
-        exportAsyncTask(Context context, EventDao eventDao) {
-            this.context = context;
+        exportAsyncTask(MainActivity activity, EventDao eventDao) {
+            this.weakReference = new WeakReference<>(activity);
             this.eventDao = eventDao;
         }
 
         @Override
         protected Void doInBackground(final Void... args) {
+            // Re-acquire a strong reference to the activity, and verify that it still exists and is active.
+            MainActivity activity = weakReference.get();
+            if(activity == null || activity.isFinishing() || activity.isDestroyed()) {
+                // activity is no longer valid, don't do anything
+                return null;
+            }
+            // get the context
+            Context context = activity.getApplicationContext();
+
+            List<Event> collectedEvents = eventDao.getEvents();
+            if(collectedEvents.size() == 0) {
+                return null;
+            }
+
             File outputDir = context.getCacheDir();
-            File outputFile = null;
+            File outputFile;
             try {
                 outputFile = File.createTempFile("events-", ".csv", outputDir);
 
@@ -333,7 +446,7 @@ public class MainActivity extends AppCompatActivity implements BeaconConsumer {
                 Toast.makeText(context, e.getMessage(), Toast.LENGTH_LONG).show();
                 return null;
             }
-            FileOutputStream stream = null;
+            FileOutputStream stream;
             try {
                 stream = new FileOutputStream(outputFile);
             } catch (FileNotFoundException e) {
@@ -342,7 +455,7 @@ public class MainActivity extends AppCompatActivity implements BeaconConsumer {
             }
             try {
                 stream.write(getEventCSVHeader().getBytes());
-                for (Event event : eventDao.getEvents()) {
+                for (Event event : collectedEvents) {
                     stream.write(getEventCSVLine(event).getBytes());
                 }
             } catch (IOException e) {
@@ -355,11 +468,11 @@ public class MainActivity extends AppCompatActivity implements BeaconConsumer {
                     Toast.makeText(context, e.getMessage(), Toast.LENGTH_LONG).show();
                 }
             }
-            // Fetch Bitmap Uri locally
-//             Uri.fromFile(outputFile);
+
             Uri uri = FileProvider.getUriForFile(context, context.getPackageName()+".fileprovider", outputFile);
 
             Intent shareIntent = new Intent();
+            shareIntent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
             shareIntent.setAction(Intent.ACTION_SEND);
             shareIntent.putExtra(Intent.EXTRA_STREAM, uri);
             shareIntent.setType("text/csv");
@@ -367,11 +480,11 @@ public class MainActivity extends AppCompatActivity implements BeaconConsumer {
             return null;
         }
 
-        private static final String getEventCSVHeader() {
+        private static String getEventCSVHeader() {
             return "id,uuid,major,minor,rssi,distance,sound,vibration,date\n";
         }
 
-        private static final String getEventCSVLine(Event event) {
+        private static String getEventCSVLine(Event event) {
             return String.format("%s,%s,%s,%s,%s,%s,%s,%s,%s\n", String.valueOf(event.id),
                     event.uuid,
                     event.major,
